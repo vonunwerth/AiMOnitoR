@@ -1,0 +1,9 @@
+# Build-Ergebnisse und lokale Dateien
+*.exe
+*.pdb
+log.txt
+log.txt.1
+config.json
+build/
+out/
+*.aiusage.tmp
