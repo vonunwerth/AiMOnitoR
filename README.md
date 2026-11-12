@@ -1,4 +1,4 @@
-# AI Usage Monitor
+# AiMOnitoR (AMOR) – AI Usage Monitor
 
 **See how much of your AI subscription limits is left, right in the Windows taskbar.**
 
