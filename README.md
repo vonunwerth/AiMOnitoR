@@ -56,10 +56,22 @@ Step-by-step instructions are in [First-time sign-in](#first-time-sign-in). Prov
 
 ## Install
 
-1. Download the repository (*Code → Download ZIP*) and unpack it somewhere permanent, e.g. `C:\Tools\ai-usage-monitor`.
-2. Double-click **`install.bat`**. It builds `AIUsageMonitor.exe`, adds it to Windows autostart and starts it.
+### Option A: ready-made download (recommended)
+
+1. Download **`AiMOnitoR-vX.Y.Z-windows.zip`** from the [latest release](https://github.com/vonunwerth/AiMOnitoR/releases/latest).
+2. Unpack it somewhere permanent, e.g. `C:\Tools\AiMOnitoR`.
+3. Double-click **`install.bat`**. It adds the monitor to Windows autostart and starts it.
+   (To start it just once, double-click `AIUsageMonitor.exe` instead.)
+4. Windows 11 hides new tray icons behind the `^` arrow. Drag the four icons onto the taskbar, or enable them under *Settings → Personalization → Taskbar → Other system tray icons*.
+
+The EXE is not code-signed, so Windows SmartScreen may warn about an unknown publisher. Click *More info → Run anyway*, or use option B.
+
+### Option B: build it yourself from source
+
+1. Download the repository (*Code → Download ZIP*) and unpack it somewhere permanent.
+2. Double-click **`install.bat`**. It builds `AIUsageMonitor.exe` with the C# compiler built into Windows, adds it to autostart and starts it.
    (Use `build.bat` instead if you only want to build and start it, without autostart.)
-3. Windows 11 hides new tray icons behind the `^` arrow. Drag the four icons onto the taskbar, or enable them under *Settings → Personalization → Taskbar → Other system tray icons*.
+3. Pin the tray icons as in option A, step 4.
 
 To remove it, run **`uninstall.bat`**. It stops the monitor and removes the autostart entry. Settings live in `%APPDATA%\AIUsageMonitor`.
 
@@ -222,7 +234,7 @@ Ein kleines Tray-Programm für Windows. Es zeigt für Claude, ChatGPT, Gemini un
 
 So richtest du es ein:
 
-1. Repo herunterladen.
+1. Unter [Releases](https://github.com/vonunwerth/AiMOnitoR/releases/latest) die ZIP-Datei herunterladen und dauerhaft entpacken (oder das Repo laden und selbst bauen).
 2. `install.bat` doppelklicken.
 3. Pro Abo einmal im offiziellen Tool anmelden. Am besten in einer normalen PowerShell (nicht als Administrator) und nach jeder Installation in einem neuen Fenster:
    - **Claude:** `irm https://claude.ai/install.ps1 | iex`, dann `claude` starten und „Claude account with subscription“ wählen.
