@@ -52,7 +52,7 @@ A grey corner on an icon means the provider is not set up. A white corner means 
 | Gemini (Google AI Pro/Ultra/free) | [Antigravity CLI](https://antigravity.google): `irm https://antigravity.google/cli/install.ps1 \| iex`, then `agy` and sign in with Google (run it in your own folder, not in `System32`) | managed by `agy` itself |
 | GitHub Copilot | right-click a tray icon → *GitHub Copilot anmelden…* (GitHub device login), **or** an existing `gh auth login` / Copilot editor plugin login | own login (DPAPI-encrypted), `%LOCALAPPDATA%\github-copilot\apps.json` or `gh auth token` |
 
-Providers you don't use can be switched off in the settings, or simply left unconfigured; they then show a grey corner.
+Step-by-step instructions are in [First-time sign-in](#first-time-sign-in). Providers you don't use can be switched off in the settings, or simply left unconfigured; they then show a grey corner.
 
 ## Install
 
@@ -64,6 +64,76 @@ Providers you don't use can be switched off in the settings, or simply left unco
 To remove it, run **`uninstall.bat`**. It stops the monitor and removes the autostart entry. Settings live in `%APPDATA%\AIUsageMonitor`.
 
 > If you move the folder later, run `install.bat` again. Windows ties tray icon positions to the program's path.
+
+## First-time sign-in
+
+The monitor never asks for your password. It reads the login that each provider's official tool saves on your PC. So you sign in **once per provider** in that tool, and the monitor picks the login up automatically: within a minute, or within 5 minutes for Gemini.
+
+Use a **normal PowerShell window, not one opened "as Administrator"**, so that everything ends up in your own user profile. After installing a tool, **close the window and open a new one**, otherwise the new command isn't found yet.
+
+### Claude
+
+1. Install Claude Code:
+   ```powershell
+   irm https://claude.ai/install.ps1 | iex
+   ```
+2. Open a new PowerShell window and run `claude`.
+3. When asked how to log in, choose your **Claude account with a subscription** (Pro, Max, Team or Enterprise), not an API key. A browser window opens; sign in and confirm.
+4. When the Claude Code prompt appears, the login is saved. You can quit with `/exit`.
+
+If you're already logged in with an API key, run `/login` inside `claude` to switch to your subscription account.
+
+### ChatGPT
+
+1. Install the Codex CLI. It needs [Node.js](https://nodejs.org):
+   ```powershell
+   npm i -g @openai/codex
+   ```
+2. Open a new PowerShell window and run `codex login`.
+3. Choose **Sign in with ChatGPT** (not API key). A browser window opens; sign in with the account that has your ChatGPT subscription.
+4. As soon as the terminal reports a successful login, you're done.
+
+### Gemini
+
+Google no longer serves the old Gemini CLI for personal accounts, so Gemini limits come from **Antigravity**.
+
+1. Install the Antigravity CLI:
+   ```powershell
+   irm https://antigravity.google/cli/install.ps1 | iex
+   ```
+2. Open a new PowerShell window. Change to a folder of your own **before** starting it, not `C:\Windows\System32`:
+   ```powershell
+   mkdir ~\agy -Force; cd ~\agy
+   agy
+   ```
+3. When asked *"Do you trust the contents of this project?"*, choose **Yes, I trust this folder**. That's safe here because the folder is empty.
+4. Sign in with your Google account in the browser. When the Antigravity chat screen appears, the login is saved. You can quit with `/quit` or Ctrl+C.
+
+The monitor itself always runs `agy` in its own empty temp folder in report-only mode, so the trust question never comes up there.
+
+### GitHub Copilot
+
+1. Right-click any of the monitor's tray icons and choose **GitHub Copilot anmelden…**.
+2. A small window shows a code. Click **Code kopieren & GitHub öffnen**: the code is copied to the clipboard and `github.com/login/device` opens.
+3. Paste the code, click **Continue** and then **Authorize**. The window closes by itself.
+
+The monitor signs in the same way VS Code does and only requests read access to your profile (`read:user`). The token is stored encrypted with Windows DPAPI. If you're already signed in with the GitHub CLI (`gh auth login`) or a Copilot editor plugin, the monitor tries that login first, and you may not need this step at all.
+
+### Checking that it worked
+
+- Left-click a tray icon. Each provider should show filled bars with percentages and reset times. Click **Aktualisieren** to refresh at once.
+- A **grey corner** on an icon means no login was found for that provider. The detail view says exactly what's missing.
+- A **white corner** means the login was found, but the last refresh failed. The reason is in the detail view.
+
+| Message in the detail view | What to do |
+|---|---|
+| *Kein Claude-Code-Login gefunden* | Do the Claude steps above. |
+| *nur API-Key* (Claude or Codex) | Sign in again with your subscription account (`/login` in `claude`, or `codex login`). |
+| *Token abgelaufen / konnte nicht erneuert werden* | Start `claude` or `codex` once and use it briefly. If that doesn't help, sign in again. |
+| *Gemini läuft für Privatkonten über Antigravity* | `agy` isn't installed or wasn't found. Do the Gemini steps above. |
+| *Antigravity ist nicht angemeldet* | Run `agy` in your own folder and sign in again. |
+| *Nicht mit GitHub verbunden* / *Token wird abgelehnt* | Use *GitHub Copilot anmelden…* again. Check that your GitHub account actually has Copilot. |
+| *zu viele Abfragen (429)* | Nothing to do. The provider is paused for a few minutes automatically. |
 
 ## Usage
 
@@ -154,7 +224,13 @@ So richtest du es ein:
 
 1. Repo herunterladen.
 2. `install.bat` doppelklicken.
-3. Pro Abo einmal im offiziellen Tool anmelden: `claude`, `codex login`, `agy` und für Copilot Rechtsklick → *GitHub Copilot anmelden…*
+3. Pro Abo einmal im offiziellen Tool anmelden. Am besten in einer normalen PowerShell (nicht als Administrator) und nach jeder Installation in einem neuen Fenster:
+   - **Claude:** `irm https://claude.ai/install.ps1 | iex`, dann `claude` starten und „Claude account with subscription“ wählen.
+   - **ChatGPT:** `npm i -g @openai/codex`, dann `codex login` und „Sign in with ChatGPT“ wählen.
+   - **Gemini:** `irm https://antigravity.google/cli/install.ps1 | iex`, dann in einem eigenen Ordner (`mkdir ~\agy -Force; cd ~\agy`) `agy` starten, den Ordner freigeben und mit Google anmelden.
+   - **Copilot:** Rechtsklick auf ein Tray-Symbol → *GitHub Copilot anmelden…*, den Code auf github.com/login/device eingeben und bestätigen.
+
+   Die ausführliche Anleitung mit Fehlerbehebung steht oben unter [First-time sign-in](#first-time-sign-in).
 
 Die Oberfläche ist auf Deutsch.
 
