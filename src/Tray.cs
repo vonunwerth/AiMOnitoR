@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("AI Usage Monitor")]
 [assembly: AssemblyProduct("AI Usage Monitor")]
 [assembly: AssemblyDescription("Zeigt die verbleibenden Limits von Claude, ChatGPT, Gemini und GitHub Copilot")]
-[assembly: AssemblyVersion("1.1.2.0")]
-[assembly: AssemblyFileVersion("1.1.2.0")]
+[assembly: AssemblyVersion("1.1.3.0")]
+[assembly: AssemblyFileVersion("1.1.3.0")]
 
 namespace AIUsageMonitor
 {
@@ -249,76 +249,102 @@ namespace AIUsageMonitor
         }
     }
 
-    // Ermittelt, wo die eigenen Tray-Symbole in der Taskleiste stehen, über UI Automation:
-    // Windows 11 zeigt jedes Tray-Symbol als Schaltfläche, deren Name der Tooltip ist.
-    // UIAutomationClient wird zur Laufzeit geladen (liegt bei jedem Windows mit .NET Framework 4 bei).
+    // Ermittelt, wo die eigenen Tray-Symbole in der Taskleiste stehen, über UI Automation (COM, "UIA3"):
+    // Windows 11 zeigt jedes Tray-Symbol als Element, dessen Name der Tooltip ist.
+    // (Die .NET-Bibliothek System.Windows.Automation sieht die XAML-Taskleiste von Windows 11 nicht.)
     public static class TaskbarOrder
     {
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         static extern IntPtr FindWindow(string cls, string title);
 
+        [ComImport, Guid("30CBE57D-D9D0-452A-AB13-7AC5AC4825EE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IUIAutomation
+        {
+            void CompareElements(); void CompareRuntimeIds(); void GetRootElement();
+            [return: MarshalAs(UnmanagedType.Interface)] IUIAutomationElement ElementFromHandle(IntPtr hwnd);
+            void ElementFromPoint(); void GetFocusedElement(); void GetRootElementBuildCache();
+            void ElementFromHandleBuildCache(); void ElementFromPointBuildCache(); void GetFocusedElementBuildCache();
+            void CreateTreeWalker(); void get_ControlViewWalker(); void get_ContentViewWalker(); void get_RawViewWalker();
+            void get_RawViewCondition(); void get_ControlViewCondition(); void get_ContentViewCondition(); void CreateCacheRequest();
+            [return: MarshalAs(UnmanagedType.Interface)] IUIAutomationCondition CreateTrueCondition();
+        }
+
+        [ComImport, Guid("352FFBA8-0973-437C-A61F-F64CAFD81DF9"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IUIAutomationCondition { }
+
+        [ComImport, Guid("D22108AA-8AC5-49A5-837B-37BBB3D7591E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IUIAutomationElement
+        {
+            void SetFocus(); void GetRuntimeId(); void FindFirst();
+            [return: MarshalAs(UnmanagedType.Interface)] IUIAutomationElementArray FindAll(int scope, [MarshalAs(UnmanagedType.Interface)] IUIAutomationCondition condition);
+            void FindFirstBuildCache(); void FindAllBuildCache(); void BuildUpdatedCache();
+            [return: MarshalAs(UnmanagedType.Struct)] object GetCurrentPropertyValue(int propertyId);
+        }
+
+        [ComImport, Guid("14314595-B4BC-4055-95F2-58F2E42C9855"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IUIAutomationElementArray
+        {
+            int get_Length();
+            [return: MarshalAs(UnmanagedType.Interface)] IUIAutomationElement GetElement(int index);
+        }
+
+        const int UIA_BoundingRectanglePropertyId = 30001, UIA_NamePropertyId = 30005, TreeScope_Descendants = 4;
+        static IUIAutomation uia;
         static bool unavailable;
+        static string lastDiag;
+
+        static bool Matches(string name, string tip)
+        {
+            // genauer Vergleich: z.B. das Tray-Symbol der Claude-App heißt nur "Claude"
+            return name == tip || name.StartsWith(tip, StringComparison.Ordinal)
+                || (name.Length >= 15 && tip.StartsWith(name, StringComparison.Ordinal));
+        }
 
         // Schlüssel: Anbieter-Id, Wert: Mittelpunkt des Symbols in Bildschirmkoordinaten
         public static Dictionary<string, System.Drawing.PointF> Find(Dictionary<string, string> tipById)
         {
             Dictionary<string, System.Drawing.PointF> res = new Dictionary<string, System.Drawing.PointF>();
             if (unavailable) return res;
+            List<string> candidates = new List<string>();
+            int count = 0;
             try
             {
-                const string suffix = ", Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35";
-                Assembly ac = Assembly.Load("UIAutomationClient" + suffix);
-                Assembly at = Assembly.Load("UIAutomationTypes" + suffix);
-                Type tAE = ac.GetType("System.Windows.Automation.AutomationElement", true);
-                Type tCond = ac.GetType("System.Windows.Automation.Condition", true);
-                Type tPropCond = ac.GetType("System.Windows.Automation.PropertyCondition", true);
-                Type tScope = at.GetType("System.Windows.Automation.TreeScope", true);
-                Type tCT = at.GetType("System.Windows.Automation.ControlType", true);
-
-                object ctProp = tAE.GetField("ControlTypeProperty").GetValue(null);
-                object button = tCT.GetField("Button").GetValue(null);
-                object cond = Activator.CreateInstance(tPropCond, new object[] { ctProp, button });
-                object scope = Enum.ToObject(tScope, 4); // TreeScope.Descendants
-
+                if (uia == null)
+                    uia = (IUIAutomation)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("FF48DBA4-60EF-4201-AA87-54103EEF594E")));
                 IntPtr tray = FindWindow("Shell_TrayWnd", null);
                 if (tray == IntPtr.Zero) return res;
-                object root = tAE.GetMethod("FromHandle").Invoke(null, new object[] { tray });
-                MethodInfo findAll = tAE.GetMethod("FindAll", new Type[] { tScope, tCond });
-                IEnumerable els = (IEnumerable)findAll.Invoke(root, new object[] { scope, cond });
-                PropertyInfo pCurrent = tAE.GetProperty("Current");
-
-                foreach (object el in els)
+                IUIAutomationElement root = uia.ElementFromHandle(tray);
+                IUIAutomationElementArray arr = root.FindAll(TreeScope_Descendants, uia.CreateTrueCondition());
+                count = arr.get_Length();
+                for (int i = 0; i < count; i++)
                 {
-                    object info = pCurrent.GetValue(el, null);
-                    string name = info.GetType().GetProperty("Name").GetValue(info, null) as string;
+                    IUIAutomationElement el = arr.GetElement(i);
+                    string name = el.GetCurrentPropertyValue(UIA_NamePropertyId) as string;
                     if (string.IsNullOrEmpty(name)) continue;
                     name = name.Trim();
+                    if (name.IndexOf(" frei", StringComparison.Ordinal) >= 0 || name.IndexOf("lädt", StringComparison.Ordinal) >= 0
+                        || name.IndexOf("eingerichtet", StringComparison.Ordinal) >= 0)
+                        candidates.Add(name);
                     foreach (KeyValuePair<string, string> kv in tipById)
                     {
                         if (res.ContainsKey(kv.Key) || string.IsNullOrEmpty(kv.Value)) continue;
-                        string t = kv.Value.Trim();
-                        // genauer Vergleich: z.B. das Tray-Symbol der Claude-App heißt nur "Claude"
-                        bool match = name == t || name.StartsWith(t, StringComparison.Ordinal)
-                            || (name.Length >= 15 && t.StartsWith(name, StringComparison.Ordinal));
-                        if (!match) continue;
-                        object rect = info.GetType().GetProperty("BoundingRectangle").GetValue(info, null);
-                        Type tr = rect.GetType();
-                        double x = Convert.ToDouble(tr.GetProperty("X").GetValue(rect, null));
-                        double y = Convert.ToDouble(tr.GetProperty("Y").GetValue(rect, null));
-                        double w = Convert.ToDouble(tr.GetProperty("Width").GetValue(rect, null));
-                        double h = Convert.ToDouble(tr.GetProperty("Height").GetValue(rect, null));
-                        if (double.IsInfinity(x) || double.IsNaN(x) || w <= 0 || h <= 0) continue;
-                        res[kv.Key] = new System.Drawing.PointF((float)(x + w / 2), (float)(y + h / 2));
+                        if (!Matches(name, kv.Value.Trim())) continue;
+                        double[] r = el.GetCurrentPropertyValue(UIA_BoundingRectanglePropertyId) as double[];
+                        if (r == null || r.Length < 4 || r[2] <= 0 || r[3] <= 0) continue;
+                        res[kv.Key] = new System.Drawing.PointF((float)(r[0] + r[2] / 2), (float)(r[1] + r[3] / 2));
                         break;
                     }
                 }
             }
             catch (Exception ex)
             {
-                Exception inner = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
-                Log.Write("Taskleisten-Reihenfolge per UI Automation nicht möglich: " + inner.Message);
-                if (ex is System.IO.FileNotFoundException || ex is TypeLoadException) unavailable = true;
+                Log.Write("Taskleisten-Reihenfolge per UI Automation nicht möglich: " + ex.Message);
+                if (ex is InvalidCastException) unavailable = true;
             }
+            // Diagnose (nur bei Änderung): wie viele Elemente, welche sahen aus wie unsere Symbole
+            string diag = "UIA: " + count + " Elemente, " + res.Count + " zugeordnet" +
+                (res.Count < tipById.Count && candidates.Count > 0 ? "; Kandidaten: " + string.Join(" | ", candidates.ToArray()) : "");
+            if (diag != lastDiag) { Log.Write(diag); lastDiag = diag; }
             return res;
         }
     }
