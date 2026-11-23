@@ -851,6 +851,7 @@ namespace AIUsageMonitor
 
         void ShowPopup(Point at)
         {
+            RecomputeTrayOrder();
             UpdatePopupData();
             popup.ShowNear(at);
         }
@@ -893,32 +894,77 @@ namespace AIUsageMonitor
             if (popup.Visible) { popup.Relayout(); popup.Invalidate(); }
         }
 
-        // Anbieter in der Reihenfolge, in der ihre Symbole in der Taskleiste stehen
-        // (sichtbare Symbole von links nach rechts bzw. oben nach unten, ausgeblendete danach)
+        // ---- Reihenfolge der Detailansicht = Reihenfolge der Symbole in der Taskleiste
+        List<string> trayOrderIds = new List<string>();
+        string lastOrderLog;
+        volatile bool orderBusy;
+
         List<Provider> TrayOrder()
         {
             List<Provider> list = new List<Provider>();
-            Dictionary<Provider, double> key = new Dictionary<Provider, double>();
-            int idx = 0;
-            foreach (Provider p in all)
+            foreach (Provider p in all) if (Enabled(p)) list.Add(p);
+            Dictionary<Provider, int> pos = new Dictionary<Provider, int>();
+            for (int i = 0; i < list.Count; i++)
             {
-                if (!Enabled(p)) continue;
-                double k = 2e9 + idx++;
-                TrayIcon ni;
-                Rectangle rc;
-                if (icons.TryGetValue(p.Id, out ni) && ni.TryGetRect(out rc))
-                {
-                    Point c = new Point(rc.X + rc.Width / 2, rc.Y + rc.Height / 2);
-                    Screen sc = Screen.FromPoint(c);
-                    bool onTaskbar = !sc.WorkingArea.Contains(c);
-                    bool vertical = sc.WorkingArea.Height == sc.Bounds.Height && sc.WorkingArea.Width != sc.Bounds.Width;
-                    k = (onTaskbar ? 0 : 1e9) + (vertical ? c.Y : c.X) + idx * 1e-3;
-                }
-                key[p] = k;
-                list.Add(p);
+                int k = trayOrderIds.IndexOf(list[i].Id);
+                pos[list[i]] = (k >= 0 ? k : 1000) * 100 + i;   // unbekannte (z.B. im Überlauf) hinten, Standardreihenfolge
             }
-            list.Sort(delegate(Provider a, Provider b) { return key[a].CompareTo(key[b]); });
+            list.Sort(delegate(Provider a, Provider b) { return pos[a].CompareTo(pos[b]); });
             return list;
+        }
+
+        // Positionen neu bestimmen (im Hintergrund); bei Änderung wird die Detailansicht neu sortiert
+        void RecomputeTrayOrder()
+        {
+            if (orderBusy) return;
+            orderBusy = true;
+            Dictionary<string, string> tips = new Dictionary<string, string>();
+            Dictionary<string, Rectangle> rects = new Dictionary<string, Rectangle>();
+            foreach (KeyValuePair<string, TrayIcon> kv in icons)
+            {
+                tips[kv.Key] = kv.Value.Tip;
+                Rectangle rc;
+                if (kv.Value.TryGetRect(out rc)) rects[kv.Key] = rc;
+            }
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                Dictionary<string, PointF> uia = null;
+                try { uia = TaskbarOrder.Find(tips); } catch { }
+                try { popup.BeginInvoke((Action)delegate { ApplyTrayOrder(uia, rects); }); }
+                catch { orderBusy = false; }
+            });
+        }
+
+        void ApplyTrayOrder(Dictionary<string, PointF> uia, Dictionary<string, Rectangle> rects)
+        {
+            orderBusy = false;
+            Dictionary<string, PointF> centers = new Dictionary<string, PointF>();
+            string source;
+            if (uia != null && uia.Count > 0) { centers = uia; source = "UIA"; }
+            else
+            {
+                source = "Rect";
+                foreach (KeyValuePair<string, Rectangle> kv in rects)
+                {
+                    Point c = new Point(kv.Value.X + kv.Value.Width / 2, kv.Value.Y + kv.Value.Height / 2);
+                    if (!Screen.FromPoint(c).WorkingArea.Contains(c)) centers[kv.Key] = c;   // nur Symbole direkt in der Taskleiste
+                }
+            }
+            List<string> ids = new List<string>(centers.Keys);
+            ids.Sort(delegate(string a, string b)
+            {
+                PointF pa = centers[a], pb = centers[b];
+                Screen sc = Screen.FromPoint(Point.Round(pa));
+                bool vertical = sc.WorkingArea.Height == sc.Bounds.Height && sc.WorkingArea.Width != sc.Bounds.Width;
+                return vertical ? pa.Y.CompareTo(pb.Y) : pa.X.CompareTo(pb.X);
+            });
+            string logLine = source + ": " + string.Join(", ", ids.ToArray());
+            if (logLine != lastOrderLog) { Log.Write("Symbol-Reihenfolge (" + logLine + ")"); lastOrderLog = logLine; }
+            if (string.Join(",", ids.ToArray()) != string.Join(",", trayOrderIds.ToArray()))
+            {
+                trayOrderIds = ids;
+                UpdatePopupData();
+            }
         }
 
         void RefreshAll(bool manual)
@@ -983,6 +1029,7 @@ namespace AIUsageMonitor
         {
             // Symbole regelmäßig auffrischen (legt fehlende neu an, z.B. nach Explorer-Neustart)
             foreach (TrayIcon ni in icons.Values) ni.Refresh();
+            RecomputeTrayOrder();
             // Nach Ablauf eines Reset-Zeitpunkts sofort neu abfragen (höchstens alle 2 Minuten je Anbieter)
             foreach (Provider p in all)
             {

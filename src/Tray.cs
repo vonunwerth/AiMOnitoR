@@ -2,6 +2,7 @@
 // Mit GUID kann Windows die Symbole eindeutig unterscheiden und sich ihre Position merken
 // (der .NET-Baustein NotifyIcon setzt keine GUID).
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -12,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("AI Usage Monitor")]
 [assembly: AssemblyProduct("AI Usage Monitor")]
 [assembly: AssemblyDescription("Zeigt die verbleibenden Limits von Claude, ChatGPT, Gemini und GitHub Copilot")]
-[assembly: AssemblyVersion("1.1.1.0")]
-[assembly: AssemblyFileVersion("1.1.1.0")]
+[assembly: AssemblyVersion("1.1.2.0")]
+[assembly: AssemblyFileVersion("1.1.2.0")]
 
 namespace AIUsageMonitor
 {
@@ -139,6 +140,8 @@ namespace AIUsageMonitor
             return d;
         }
 
+        public string Tip { get { return tip; } }
+
         public void Update(IntPtr icon, string tooltip)
         {
             hIcon = icon;
@@ -243,6 +246,80 @@ namespace AIUsageMonitor
             visible = false;
             Remove();
             All.Remove(id);
+        }
+    }
+
+    // Ermittelt, wo die eigenen Tray-Symbole in der Taskleiste stehen, über UI Automation:
+    // Windows 11 zeigt jedes Tray-Symbol als Schaltfläche, deren Name der Tooltip ist.
+    // UIAutomationClient wird zur Laufzeit geladen (liegt bei jedem Windows mit .NET Framework 4 bei).
+    public static class TaskbarOrder
+    {
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern IntPtr FindWindow(string cls, string title);
+
+        static bool unavailable;
+
+        // Schlüssel: Anbieter-Id, Wert: Mittelpunkt des Symbols in Bildschirmkoordinaten
+        public static Dictionary<string, System.Drawing.PointF> Find(Dictionary<string, string> tipById)
+        {
+            Dictionary<string, System.Drawing.PointF> res = new Dictionary<string, System.Drawing.PointF>();
+            if (unavailable) return res;
+            try
+            {
+                const string suffix = ", Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35";
+                Assembly ac = Assembly.Load("UIAutomationClient" + suffix);
+                Assembly at = Assembly.Load("UIAutomationTypes" + suffix);
+                Type tAE = ac.GetType("System.Windows.Automation.AutomationElement", true);
+                Type tCond = ac.GetType("System.Windows.Automation.Condition", true);
+                Type tPropCond = ac.GetType("System.Windows.Automation.PropertyCondition", true);
+                Type tScope = at.GetType("System.Windows.Automation.TreeScope", true);
+                Type tCT = at.GetType("System.Windows.Automation.ControlType", true);
+
+                object ctProp = tAE.GetField("ControlTypeProperty").GetValue(null);
+                object button = tCT.GetField("Button").GetValue(null);
+                object cond = Activator.CreateInstance(tPropCond, new object[] { ctProp, button });
+                object scope = Enum.ToObject(tScope, 4); // TreeScope.Descendants
+
+                IntPtr tray = FindWindow("Shell_TrayWnd", null);
+                if (tray == IntPtr.Zero) return res;
+                object root = tAE.GetMethod("FromHandle").Invoke(null, new object[] { tray });
+                MethodInfo findAll = tAE.GetMethod("FindAll", new Type[] { tScope, tCond });
+                IEnumerable els = (IEnumerable)findAll.Invoke(root, new object[] { scope, cond });
+                PropertyInfo pCurrent = tAE.GetProperty("Current");
+
+                foreach (object el in els)
+                {
+                    object info = pCurrent.GetValue(el, null);
+                    string name = info.GetType().GetProperty("Name").GetValue(info, null) as string;
+                    if (string.IsNullOrEmpty(name)) continue;
+                    name = name.Trim();
+                    foreach (KeyValuePair<string, string> kv in tipById)
+                    {
+                        if (res.ContainsKey(kv.Key) || string.IsNullOrEmpty(kv.Value)) continue;
+                        string t = kv.Value.Trim();
+                        // genauer Vergleich: z.B. das Tray-Symbol der Claude-App heißt nur "Claude"
+                        bool match = name == t || name.StartsWith(t, StringComparison.Ordinal)
+                            || (name.Length >= 15 && t.StartsWith(name, StringComparison.Ordinal));
+                        if (!match) continue;
+                        object rect = info.GetType().GetProperty("BoundingRectangle").GetValue(info, null);
+                        Type tr = rect.GetType();
+                        double x = Convert.ToDouble(tr.GetProperty("X").GetValue(rect, null));
+                        double y = Convert.ToDouble(tr.GetProperty("Y").GetValue(rect, null));
+                        double w = Convert.ToDouble(tr.GetProperty("Width").GetValue(rect, null));
+                        double h = Convert.ToDouble(tr.GetProperty("Height").GetValue(rect, null));
+                        if (double.IsInfinity(x) || double.IsNaN(x) || w <= 0 || h <= 0) continue;
+                        res[kv.Key] = new System.Drawing.PointF((float)(x + w / 2), (float)(y + h / 2));
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Exception inner = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
+                Log.Write("Taskleisten-Reihenfolge per UI Automation nicht möglich: " + inner.Message);
+                if (ex is System.IO.FileNotFoundException || ex is TypeLoadException) unavailable = true;
+            }
+            return res;
         }
     }
 }
