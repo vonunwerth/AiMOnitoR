@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("AI Usage Monitor")]
 [assembly: AssemblyProduct("AI Usage Monitor")]
 [assembly: AssemblyDescription("Zeigt die verbleibenden Limits von Claude, ChatGPT, Gemini und GitHub Copilot")]
-[assembly: AssemblyVersion("1.1.3.0")]
-[assembly: AssemblyFileVersion("1.1.3.0")]
+[assembly: AssemblyVersion("1.1.4.0")]
+[assembly: AssemblyFileVersion("1.1.4.0")]
 
 namespace AIUsageMonitor
 {
@@ -295,9 +295,10 @@ namespace AIUsageMonitor
 
         static bool Matches(string name, string tip)
         {
-            // genauer Vergleich: z.B. das Tray-Symbol der Claude-App heißt nur "Claude"
-            return name == tip || name.StartsWith(tip, StringComparison.Ordinal)
-                || (name.Length >= 15 && tip.StartsWith(name, StringComparison.Ordinal));
+            // Windows 11 setzt den Namen aus dem ersten und dem aktuellen Tooltip zusammen
+            // (z.B. "Claude: lädt… Claude frei: 5h 60 % · Woche 82 %"), daher "enthält".
+            // Der Tooltip ist lang genug, dass z.B. das Tray-Symbol der Claude-App ("Claude") nicht passt.
+            return name.IndexOf(tip, StringComparison.Ordinal) >= 0;
         }
 
         // Schlüssel: Anbieter-Id, Wert: Mittelpunkt des Symbols in Bildschirmkoordinaten

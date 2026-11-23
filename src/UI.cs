@@ -774,6 +774,13 @@ namespace AIUsageMonitor
             tickTimer.Tick += delegate { Tick(); };
             tickTimer.Start();
 
+            // Reihenfolge der Symbole kurz nach dem Start bestimmen (die Taskleiste braucht einen Moment)
+            System.Windows.Forms.Timer orderTimer = new System.Windows.Forms.Timer();
+            int orderRuns = 0;
+            orderTimer.Interval = 3000;
+            orderTimer.Tick += delegate { RecomputeTrayOrder(); if (++orderRuns >= 3) orderTimer.Stop(); };
+            orderTimer.Start();
+
             SystemEvents.PowerModeChanged += OnPower;
             SystemEvents.UserPreferenceChanged += OnPrefs;
 
