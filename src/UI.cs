@@ -876,9 +876,8 @@ namespace AIUsageMonitor
         {
             List<ProviderResult> list = new List<ProviderResult>();
             bool loading = false;
-            foreach (Provider p in all)
+            foreach (Provider p in TrayOrder())
             {
-                if (!Enabled(p)) continue;
                 ProviderResult r;
                 if (!results.TryGetValue(p.Id, out r))
                 {
@@ -892,6 +891,34 @@ namespace AIUsageMonitor
             popup.R.Data = list;
             popup.R.AnyLoading = loading;
             if (popup.Visible) { popup.Relayout(); popup.Invalidate(); }
+        }
+
+        // Anbieter in der Reihenfolge, in der ihre Symbole in der Taskleiste stehen
+        // (sichtbare Symbole von links nach rechts bzw. oben nach unten, ausgeblendete danach)
+        List<Provider> TrayOrder()
+        {
+            List<Provider> list = new List<Provider>();
+            Dictionary<Provider, double> key = new Dictionary<Provider, double>();
+            int idx = 0;
+            foreach (Provider p in all)
+            {
+                if (!Enabled(p)) continue;
+                double k = 2e9 + idx++;
+                TrayIcon ni;
+                Rectangle rc;
+                if (icons.TryGetValue(p.Id, out ni) && ni.TryGetRect(out rc))
+                {
+                    Point c = new Point(rc.X + rc.Width / 2, rc.Y + rc.Height / 2);
+                    Screen sc = Screen.FromPoint(c);
+                    bool onTaskbar = !sc.WorkingArea.Contains(c);
+                    bool vertical = sc.WorkingArea.Height == sc.Bounds.Height && sc.WorkingArea.Width != sc.Bounds.Width;
+                    k = (onTaskbar ? 0 : 1e9) + (vertical ? c.Y : c.X) + idx * 1e-3;
+                }
+                key[p] = k;
+                list.Add(p);
+            }
+            list.Sort(delegate(Provider a, Provider b) { return key[a].CompareTo(key[b]); });
+            return list;
         }
 
         void RefreshAll(bool manual)
@@ -954,6 +981,8 @@ namespace AIUsageMonitor
 
         void Tick()
         {
+            // Symbole regelmäßig auffrischen (legt fehlende neu an, z.B. nach Explorer-Neustart)
+            foreach (TrayIcon ni in icons.Values) ni.Refresh();
             // Nach Ablauf eines Reset-Zeitpunkts sofort neu abfragen (höchstens alle 2 Minuten je Anbieter)
             foreach (Provider p in all)
             {

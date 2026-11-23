@@ -12,8 +12,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("AI Usage Monitor")]
 [assembly: AssemblyProduct("AI Usage Monitor")]
 [assembly: AssemblyDescription("Zeigt die verbleibenden Limits von Claude, ChatGPT, Gemini und GitHub Copilot")]
-[assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.1.0.0")]
+[assembly: AssemblyVersion("1.1.1.0")]
+[assembly: AssemblyFileVersion("1.1.1.0")]
 
 namespace AIUsageMonitor
 {
@@ -77,7 +77,7 @@ namespace AIUsageMonitor
                 if (m.Msg == TaskbarCreated && TaskbarCreated != 0)
                 {
                     // Explorer wurde neu gestartet -> alle Symbole neu anlegen
-                    foreach (TrayIcon t in new List<TrayIcon>(All.Values)) { t.added = false; t.Push(); }
+                    foreach (TrayIcon t in new List<TrayIcon>(All.Values)) { t.Reset(); t.Push(); }
                 }
                 base.WndProc(ref m);
             }
@@ -101,7 +101,7 @@ namespace AIUsageMonitor
         string tip = "";
         bool added;
         bool visible;
-        bool noGuid;
+        int guidFailures;
 
         public TrayIcon(string key)
         {
@@ -125,14 +125,14 @@ namespace AIUsageMonitor
             }
         }
 
-        NOTIFYICONDATA Data(int flags)
+        NOTIFYICONDATA Data(int flags, bool useGuid)
         {
             NOTIFYICONDATA d = new NOTIFYICONDATA();
             d.cbSize = Marshal.SizeOf(typeof(NOTIFYICONDATA));
             d.hWnd = window.Handle;
             d.uID = id;
-            d.uFlags = noGuid ? flags : (flags | NIF_GUID);
-            if (!noGuid) d.guidItem = guid;
+            d.uFlags = useGuid ? (flags | NIF_GUID) : flags;
+            if (useGuid) d.guidItem = guid;
             d.uCallbackMessage = WM_APP_TRAY;
             d.hIcon = hIcon;
             d.szTip = tip.Length > 127 ? tip.Substring(0, 127) : tip;
@@ -157,32 +157,78 @@ namespace AIUsageMonitor
             }
         }
 
+        // Explorer wurde neu gestartet: Symbol muss neu angelegt werden
+        internal void Reset() { added = false; guidFailures = 0; }
+
+        // Regelmäßig aufrufen: legt ein fehlendes Symbol neu an (z.B. wenn Explorer beim Neustart noch nicht bereit war)
+        public void Refresh() { Push(); }
+
         void Push()
         {
             if (!visible || hIcon == IntPtr.Zero) return;
-            NOTIFYICONDATA d = Data(NIF_MESSAGE | NIF_ICON | NIF_TIP);
+            bool useGuid = guidFailures < 3;
+            NOTIFYICONDATA d = Data(NIF_MESSAGE | NIF_ICON | NIF_TIP, useGuid);
             if (added && Shell_NotifyIcon(NIM_MODIFY, ref d)) return;
-            // Eventuell noch registrierter Eintrag (z.B. nach Absturz) zuerst entfernen
-            NOTIFYICONDATA del = Data(0);
-            Shell_NotifyIcon(NIM_DELETE, ref del);
+
+            // Alle denkbaren Einträge dieses Symbols entfernen (mit und ohne GUID), damit nie ein
+            // veraltetes Doppel stehen bleibt, das keine Aktualisierungen mehr bekommt
+            DeleteAll();
             added = Shell_NotifyIcon(NIM_ADD, ref d);
-            if (!added && !noGuid)
+            if (added) { if (useGuid) guidFailures = 0; return; }
+
+            if (useGuid)
             {
-                // Notlösung: ohne GUID anlegen (Position wird dann evtl. nicht gemerkt)
-                Log.Write("Tray-Symbol mit GUID fehlgeschlagen, versuche ohne GUID");
-                noGuid = true;
-                d = Data(NIF_MESSAGE | NIF_ICON | NIF_TIP);
-                added = Shell_NotifyIcon(NIM_ADD, ref d);
+                guidFailures++;
+                Log.Write("Tray-Symbol konnte nicht angelegt werden (Versuch " + guidFailures + ", wird wiederholt)");
+                if (guidFailures >= 3)
+                {
+                    // Notlösung nach mehreren Fehlversuchen: ohne GUID (Position wird dann evtl. nicht gemerkt)
+                    d = Data(NIF_MESSAGE | NIF_ICON | NIF_TIP, false);
+                    added = Shell_NotifyIcon(NIM_ADD, ref d);
+                    if (added) Log.Write("Tray-Symbol ohne GUID angelegt");
+                }
             }
-            if (!added) Log.Write("Tray-Symbol konnte nicht angelegt werden");
+        }
+
+        void DeleteAll()
+        {
+            NOTIFYICONDATA a = Data(0, true);
+            Shell_NotifyIcon(NIM_DELETE, ref a);
+            NOTIFYICONDATA b = Data(0, false);
+            Shell_NotifyIcon(NIM_DELETE, ref b);
         }
 
         void Remove()
         {
-            if (!added) return;
-            NOTIFYICONDATA d = Data(0);
-            Shell_NotifyIcon(NIM_DELETE, ref d);
+            DeleteAll();
             added = false;
+        }
+
+        // Position des Symbols auf dem Bildschirm (für die Reihenfolge in der Detailansicht)
+        [StructLayout(LayoutKind.Sequential)]
+        struct NOTIFYICONIDENTIFIER { public int cbSize; public IntPtr hWnd; public int uID; public Guid guidItem; }
+        [StructLayout(LayoutKind.Sequential)]
+        struct RECT { public int Left, Top, Right, Bottom; }
+        [DllImport("shell32.dll")]
+        static extern int Shell_NotifyIconGetRect(ref NOTIFYICONIDENTIFIER identifier, out RECT iconLocation);
+
+        public bool TryGetRect(out System.Drawing.Rectangle rect)
+        {
+            rect = System.Drawing.Rectangle.Empty;
+            if (!added) return false;
+            try
+            {
+                NOTIFYICONIDENTIFIER nid = new NOTIFYICONIDENTIFIER();
+                nid.cbSize = Marshal.SizeOf(typeof(NOTIFYICONIDENTIFIER));
+                nid.hWnd = window.Handle;
+                nid.uID = id;
+                if (guidFailures < 3) nid.guidItem = guid;
+                RECT r;
+                if (Shell_NotifyIconGetRect(ref nid, out r) != 0) return false;
+                rect = System.Drawing.Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
+                return rect.Width > 0 && rect.Height > 0;
+            }
+            catch { return false; }
         }
 
         public static void ShowMenu(ContextMenuStrip menu)
