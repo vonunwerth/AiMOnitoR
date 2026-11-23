@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("AI Usage Monitor")]
 [assembly: AssemblyProduct("AI Usage Monitor")]
 [assembly: AssemblyDescription("Zeigt die verbleibenden Limits von Claude, ChatGPT, Gemini und GitHub Copilot")]
-[assembly: AssemblyVersion("1.1.4.0")]
-[assembly: AssemblyFileVersion("1.1.4.0")]
+[assembly: AssemblyVersion("1.1.5.0")]
+[assembly: AssemblyFileVersion("1.1.5.0")]
 
 namespace AIUsageMonitor
 {

@@ -24,7 +24,7 @@ A tiny Windows tray app that shows two mini bars per AI subscription (short wind
 | **Claude** (salmon stripe) | 5-hour limit | weekly limit (all models) | weekly limits per model, extra usage |
 | **ChatGPT** (teal stripe) | 5-hour limit | weekly limit | extra limits (e.g. Codex-Spark), credits |
 | **Gemini** (blue stripe) | 5-hour limit (Gemini models) | weekly limit (Gemini models) | Claude & GPT limits inside Antigravity |
-| **Copilot** (purple stripe) | premium requests (monthly) | only on the Free plan: chat | chat / completions, remaining count |
+| **Copilot** (purple stripe) | premium requests (monthly) | only on the Free plan: chat | remaining count; limited chat / completions quotas (unlimited ones are hidden) |
 
 Bar colour shows the **remaining** share:
 

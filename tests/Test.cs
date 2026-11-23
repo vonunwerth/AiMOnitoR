@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -71,6 +71,7 @@ namespace AIUsageMonitor
             cp.UpdatedAt = DateTime.Now;
             Check(Math.Abs(cp.BarA.RemainingPct.Value - 37.3) < 0.01, "Copilot Premium 37,3%");
             Check(cp.BarB == null, "Copilot: kein zweiter Balken bei unbegrenztem Chat");
+            Check(cp.Windows.Count == 1, "Copilot: unbegrenzte Kontingente ausgeblendet -> " + cp.Windows.Count);
             Check(cp.BarA.ResetsAt.HasValue && cp.BarA.ResetsAt.Value.ToUniversalTime().Day == 1, "Copilot Reset 1. des Monats");
             Check(cp.BarA.Note == "112 von 300 übrig", "Copilot Note -> " + cp.BarA.Note);
 

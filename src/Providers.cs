@@ -643,6 +643,10 @@ namespace AIUsageMonitor
             if (premium != null) res.Windows.Add(premium);
             if (chat != null) res.Windows.Add(chat);
             if (compl != null) res.Windows.Add(compl);
+            // Unbegrenzte Kontingente (bei bezahlten Plänen Chat und Code-Vervollständigung) nicht anzeigen,
+            // solange es ein begrenztes gibt – sie sagen nichts über das verbleibende Kontingent aus
+            if (res.Windows.Exists(delegate(UsageWindow x) { return !x.Unlimited; }))
+                res.Windows.RemoveAll(delegate(UsageWindow x) { return x.Unlimited; });
 
             // Free-Plan: limited_user_quotas / monthly_quotas
             if (res.Windows.Count == 0)
